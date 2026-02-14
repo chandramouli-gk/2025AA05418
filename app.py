@@ -30,6 +30,19 @@ st.markdown("""
 <style>
     .main {
         background-color: white;
+        position: relative;
+    }
+    .watermark {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-45deg);
+        font-size: 100px;
+        color: rgba(0, 0, 128, 0.15);
+        z-index: 999;
+        pointer-events: none;
+        font-weight: bold;
+        white-space: nowrap;
     }
     h1, h2, h3 {
         color: #000080 !important;
@@ -76,6 +89,11 @@ st.markdown("""
         border-radius: 5px;
     }
 </style>
+""", unsafe_allow_html=True)
+
+# Add visible watermark
+st.markdown("""
+<div class="watermark">2025AA05418</div>
 """, unsafe_allow_html=True)
 
 # Initialize session state
@@ -335,13 +353,29 @@ if st.session_state.page == 'main':
     
     with col2:
         st.markdown("### Upload Test Data")
-        uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'], key='file_uploader')
+        
+        # Two options: Upload or Load from GitHub
+        col_upload, col_github = st.columns([2, 1])
+        
+        with col_upload:
+            uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'], key='file_uploader')
+        
+        with col_github:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Load Test Data from GitHub", use_container_width=True):
+                try:
+                    github_url = "https://raw.githubusercontent.com/chandramouli-gk/2025AA05418/main/test_data.csv"
+                    st.session_state.uploaded_df = pd.read_csv(github_url)
+                    st.success(f"GitHub data loaded successfully! Shape: {st.session_state.uploaded_df.shape}")
+                except Exception as e:
+                    st.error(f"Failed to load from GitHub: {str(e)}")
         
         if uploaded_file is not None:
             st.session_state.uploaded_df = pd.read_csv(uploaded_file)
             st.success(f"File uploaded successfully! Shape: {st.session_state.uploaded_df.shape}")
-            
-            # Preview data
+        
+        # Preview data if any data is loaded
+        if st.session_state.uploaded_df is not None:
             with st.expander("Preview Data"):
                 st.dataframe(st.session_state.uploaded_df.head(10))
         
@@ -552,10 +586,9 @@ elif st.session_state.page == 'results':
     
     fig, ax = plt.subplots(figsize=(12, 6))
     results_df.plot(kind='bar', ax=ax, color=['#000080', '#4169E1', '#6495ED', '#87CEEB', '#B0C4DE', '#DC143C'])
-    ax.set_xlabel('Models', fontsize=12, color='#000080')
-    ax.set_ylabel('Score', fontsize=12, color='#000080')
-    ax.set_title('Model Performance Comparison', fontsize=14, color='#000080', fontweight='bold')
-    ax.legend(loc='lower right')
+    ax.set_xlabel('Models', fontsize=16, color='#000080')
+    ax.set_ylabel('Score', fontsize=16, color='#000080')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.12), ncol=6, frameon=True, fancybox=True, shadow=True)
     ax.set_ylim([0, 1])
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
