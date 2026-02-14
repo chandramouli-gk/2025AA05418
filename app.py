@@ -1,0 +1,611 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import pickle
+import os
+from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score, 
+                             recall_score, f1_score, matthews_corrcoef, confusion_matrix)
+import matplotlib.pyplot as plt
+import seaborn as sns
+from io import BytesIO
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from datetime import datetime
+import xlsxwriter
+from PIL import Image as PILImage
+
+# Page configuration with custom colors
+st.set_page_config(
+    page_title="Binary Classification Model Compare", 
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Custom CSS for color scheme (white, blue, black, red)
+st.markdown("""
+<style>
+    .main {
+        background-color: white;
+    }
+    h1, h2, h3 {
+        color: #000080 !important;
+    }
+    .stButton>button {
+        background-color: #000080;
+        color: white;
+        border-radius: 5px;
+        border: none;
+        padding: 10px 24px;
+    }
+    .stButton>button:hover {
+        background-color: #0000CD;
+    }
+    .author-info {
+        background-color: #000080;
+        color: white;
+        padding: 15px 20px;
+        border-radius: 10px;
+        text-align: right;
+        margin-bottom: 20px;
+        font-size: 14px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .stMetric {
+        background-color: #f0f8ff;
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #000080;
+    }
+    .success-box {
+        background-color: #000080;
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    .error-box {
+        background-color: #DC143C;
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'page' not in st.session_state:
+    st.session_state.page = 'main'
+if 'results' not in st.session_state:
+    st.session_state.results = None
+if 'uploaded_df' not in st.session_state:
+    st.session_state.uploaded_df = None
+if 'selected_models' not in st.session_state:
+    st.session_state.selected_models = []
+if 'y_test' not in st.session_state:
+    st.session_state.y_test = None
+if 'predictions' not in st.session_state:
+    st.session_state.predictions = {}
+
+models_dir = 'trained_models'
+
+@st.cache_resource
+def load_models():
+    """Load all trained models from pickle files"""
+    models = {}
+    model_files = {
+        'Logistic Regression': 'logistic_regression.pkl',
+        'Decision Tree': 'decision_tree.pkl',
+        'K-Nearest Neighbors': 'k-nearest_neighbors.pkl',
+        'Naive Bayes': 'naive_bayes.pkl',
+        'Random Forest': 'random_forest.pkl',
+        'XGBoost': 'xgboost.pkl'
+    }
+    
+    if not os.path.exists(models_dir):
+        return None
+    
+    for name, filename in model_files.items():
+        filepath = os.path.join(models_dir, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                models[name] = pickle.load(f)
+    
+    return models if models else None
+
+@st.cache_resource
+def load_preprocessor():
+    """Load the preprocessor"""
+    preprocessor_path = os.path.join(models_dir, 'preprocessor.pkl')
+    if os.path.exists(preprocessor_path):
+        with open(preprocessor_path, 'rb') as f:
+            return pickle.load(f)
+    return None
+
+def get_expected_columns():
+    """Get expected columns from preprocessor"""
+    return ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 
+            'exang', 'oldpeak', 'slope', 'ca', 'thal', 'target']
+
+def validate_test_data(df, preprocessor):
+    """Validate that test data meets preprocessor requirements"""
+    expected_cols = get_expected_columns()
+    
+    # Check if dataframe has correct number of columns
+    if df.shape[1] != len(expected_cols):
+        return False, f"Expected {len(expected_cols)} columns, but got {df.shape[1]}"
+    
+    # Check column names (assuming last column is target)
+    df_cols = df.columns.tolist()
+    
+    # Define expected feature types
+    numerical_cols = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
+    categorical_cols = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'ca', 'thal']
+    
+    # Check if all required columns exist
+    required_features = numerical_cols + categorical_cols
+    missing_cols = [col for col in required_features if col not in df_cols[:-1]]
+    
+    if missing_cols:
+        return False, f"Missing required columns: {', '.join(missing_cols)}"
+    
+    # Check data types
+    for col in numerical_cols:
+        if col in df.columns and not np.issubdtype(df[col].dtype, np.number):
+            return False, f"Column '{col}' should be numeric but is {df[col].dtype}"
+    
+    return True, "Data validation successful"
+
+def create_confusion_matrix_plot(y_true, y_pred, model_name, color_scheme):
+    """Create confusion matrix plot with custom colors"""
+    cm = confusion_matrix(y_true, y_pred)
+    
+    fig, ax = plt.subplots(figsize=(6, 5))
+    sns.heatmap(cm, annot=True, fmt='d', cmap=color_scheme, 
+                cbar_kws={'label': 'Count'}, ax=ax,
+                xticklabels=['No Disease', 'Disease'],
+                yticklabels=['No Disease', 'Disease'])
+    ax.set_xlabel('Predicted Label', fontsize=12, color='#000080')
+    ax.set_ylabel('True Label', fontsize=12, color='#000080')
+    ax.set_title(f'Confusion Matrix - {model_name}', fontsize=14, color='#000080', fontweight='bold')
+    
+    return fig
+
+def export_to_pdf(results_df, predictions, y_test):
+    """Export results to PDF with watermark"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=100, bottomMargin=72)
+    
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#000080'),
+        spaceAfter=30,
+        alignment=TA_CENTER
+    )
+    
+    watermark_style = ParagraphStyle(
+        'Watermark',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.grey,
+        alignment=TA_RIGHT
+    )
+    
+    # Title
+    title = Paragraph("Binary Classification Model Comparison Report", title_style)
+    elements.append(title)
+    
+    # Watermark
+    watermark = Paragraph("2025AA05418", watermark_style)
+    elements.append(watermark)
+    elements.append(Spacer(1, 20))
+    
+    # Author info
+    author_text = f"<b>Author:</b> ChandraMouli GK<br/><b>BITS ID:</b> 2025AA05418<br/><b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    elements.append(Paragraph(author_text, styles['Normal']))
+    elements.append(Spacer(1, 20))
+    
+    # Results table
+    elements.append(Paragraph("<b>Model Performance Summary</b>", styles['Heading2']))
+    elements.append(Spacer(1, 10))
+    
+    # Prepare table data
+    table_data = [['Model'] + list(results_df.columns)]
+    for idx, row in results_df.iterrows():
+        table_data.append([idx] + [f"{val:.4f}" for val in row])
+    
+    # Create table
+    t = Table(table_data)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000080')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    elements.append(t)
+    elements.append(Spacer(1, 20))
+    
+    # Best model
+    best_model = results_df['Accuracy'].idxmax()
+    best_accuracy = results_df['Accuracy'].max()
+    best_text = f"<b>Best Performing Model:</b> {best_model} (Accuracy: {best_accuracy:.4f})"
+    elements.append(Paragraph(best_text, styles['Normal']))
+    
+    # Watermark footer on each page
+    def add_watermark(canvas, doc):
+        canvas.saveState()
+        canvas.setFont('Helvetica', 40)
+        canvas.setFillColorRGB(0.9, 0.9, 0.9)
+        canvas.rotate(45)
+        canvas.drawString(200, 100, "2025AA05418")
+        canvas.restoreState()
+    
+    doc.build(elements, onFirstPage=add_watermark, onLaterPages=add_watermark)
+    buffer.seek(0)
+    return buffer
+
+def export_to_excel(results_df, predictions, y_test):
+    """Export results to Excel with watermark"""
+    buffer = BytesIO()
+    
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        # Write results
+        results_df.to_excel(writer, sheet_name='Model Performance', startrow=5)
+        
+        workbook = writer.book
+        worksheet = writer.sheets['Model Performance']
+        
+        # Add watermark text
+        watermark_format = workbook.add_format({
+            'font_size': 40,
+            'font_color': '#CCCCCC',
+            'align': 'center',
+            'valign': 'vcenter'
+        })
+        
+        # Title format
+        title_format = workbook.add_format({
+            'bold': True,
+            'font_size': 16,
+            'font_color': '#000080',
+            'align': 'center'
+        })
+        
+        # Header format
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#000080',
+            'font_color': 'white',
+            'align': 'center',
+            'border': 1
+        })
+        
+        # Add title
+        worksheet.merge_range('A1:H1', 'Binary Classification Model Comparison Report', title_format)
+        worksheet.write('A2', f'Author: ChandraMouli GK')
+        worksheet.write('A3', f'BITS ID: 2025AA05418')
+        worksheet.write('A4', f'Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+        
+        # Add watermark
+        worksheet.write('H2', '2025AA05418', watermark_format)
+        
+    buffer.seek(0)
+    return buffer
+
+# Main page logic
+if st.session_state.page == 'main':
+    # Author details at the top
+    st.markdown("""
+    <div class="author-info">
+        <strong style="font-size: 16px;">ChandraMouli GK</strong><br>
+        <strong style="font-size: 20px;">BITS ID:2025AA05418</strong><br>
+        <strong>Machine Learning Assignment 2</strong>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.title("🎯 Binary Classification Model Compare")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Load models
+    trained_models = load_models()
+    preprocessor = load_preprocessor()
+    
+    if trained_models is None or preprocessor is None:
+        st.markdown('<div class="error-box">⚠️ Models or preprocessor not found! Please train models first using the Jupyter notebook.</div>', unsafe_allow_html=True)
+        st.stop()
+    
+    # Create main layout
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("### 📤 Upload Test Data")
+        uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'], key='file_uploader')
+        
+        if uploaded_file is not None:
+            st.session_state.uploaded_df = pd.read_csv(uploaded_file)
+            st.success(f"✅ File uploaded successfully! Shape: {st.session_state.uploaded_df.shape}")
+            
+            # Preview data
+            with st.expander("👁️ Preview Data"):
+                st.dataframe(st.session_state.uploaded_df.head(10))
+        
+        st.markdown("---")
+        
+        # Model selection
+        st.markdown("### 🤖 Select Models")
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            select_all = st.checkbox("✅ Select All Models", value=False)
+        
+        if select_all:
+            st.session_state.selected_models = list(trained_models.keys())
+        else:
+            st.session_state.selected_models = []
+            
+        model_checkboxes = {}
+        cols = st.columns(2)
+        for idx, model_name in enumerate(trained_models.keys()):
+            with cols[idx % 2]:
+                if select_all:
+                    checked = st.checkbox(model_name, value=True, key=f"model_{model_name}", disabled=True)
+                else:
+                    checked = st.checkbox(model_name, value=False, key=f"model_{model_name}")
+                    if checked and model_name not in st.session_state.selected_models:
+                        st.session_state.selected_models.append(model_name)
+                    elif not checked and model_name in st.session_state.selected_models:
+                        st.session_state.selected_models.remove(model_name)
+        
+        st.markdown("---")
+        
+        # Run button
+        if st.button("🚀 Run Analysis", use_container_width=True, type="primary"):
+            if st.session_state.uploaded_df is None:
+                st.error("Please upload a test file first!")
+            elif len(st.session_state.selected_models) == 0:
+                st.error("Please select at least one model!")
+            else:
+                # Validate data
+                is_valid, message = validate_test_data(st.session_state.uploaded_df, preprocessor)
+                
+                if is_valid:
+                    st.session_state.page = 'results'
+                    st.rerun()
+                else:
+                    st.session_state.page = 'error'
+                    st.session_state.error_message = message
+                    st.rerun()
+
+elif st.session_state.page == 'error':
+    # Author details at the top
+    st.markdown("""
+    <div class="author-info">
+        <strong style="font-size: 16px;">ChandraMouli GK</strong><br>
+        <strong style="font-size: 20px;">BITS ID:2025AA05418</strong><br>
+        <strong>Machine Learning Assignment 2</strong>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.title("❌ Data Validation Failed")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    st.markdown(f'<div class="error-box">{st.session_state.error_message}</div>', unsafe_allow_html=True)
+    
+    st.markdown("### 📋 Required Data Format")
+    st.markdown("""
+    Your test data must have the following columns in order:
+    
+    **Numerical Features:**
+    - `age`: Age in years
+    - `trestbps`: Resting blood pressure (mm Hg)
+    - `chol`: Serum cholesterol (mg/dL)
+    - `thalach`: Maximum heart rate achieved
+    - `oldpeak`: ST depression induced by exercise
+    
+    **Categorical Features:**
+    - `sex`: Biological sex (0 or 1)
+    - `cp`: Chest pain type (0-3)
+    - `fbs`: Fasting blood sugar >120 mg/dL (0 or 1)
+    - `restecg`: Resting ECG results (0-2)
+    - `exang`: Exercise induced angina (0 or 1)
+    - `slope`: Slope of peak exercise ST segment (0-2)
+    - `ca`: Number of major vessels (0-3)
+    - `thal`: Thalassemia (3, 6, or 7)
+    
+    **Target Variable (last column):**
+    - `target`: Heart disease presence (0 or 1)
+    """)
+    
+    expected_cols = get_expected_columns()
+    st.markdown("### Expected Columns")
+    st.write(expected_cols)
+    
+    if st.session_state.uploaded_df is not None:
+        st.markdown("### Your Data Columns")
+        st.write(st.session_state.uploaded_df.columns.tolist())
+    
+    st.markdown("---")
+    if st.button("⬅️ Back to Main Page", use_container_width=True):
+        st.session_state.page = 'main'
+        st.rerun()
+
+elif st.session_state.page == 'results':
+    # Author details at the top
+    st.markdown("""
+    <div class="author-info">
+        <strong style="font-size: 16px;">ChandraMouli GK</strong><br>
+        <strong style="font-size: 20px;">BITS ID:2025AA05418</strong><br>
+        <strong>Machine Learning Assignment 2</strong>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.title("📊 Model Performance Results")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Load models and preprocessor
+    trained_models = load_models()
+    preprocessor = load_preprocessor()
+    
+    # Prepare data
+    test_df = st.session_state.uploaded_df
+    X_test = test_df.iloc[:, :-1]
+    y_test = test_df.iloc[:, -1]
+    st.session_state.y_test = y_test
+    
+    # Preprocess data
+    X_test_processed = preprocessor.transform(X_test)
+    
+    # Evaluate models
+    with st.spinner("Evaluating models..."):
+        results = {}
+        predictions = {}
+        
+        for name in st.session_state.selected_models:
+            model = trained_models[name]
+            
+            # Make predictions
+            y_pred = model.predict(X_test_processed)
+            y_pred_proba = model.predict_proba(X_test_processed)[:, 1] if hasattr(model, 'predict_proba') else None
+            
+            predictions[name] = y_pred
+            
+            # Calculate metrics
+            accuracy = accuracy_score(y_test, y_pred)
+            precision = precision_score(y_test, y_pred, average='binary', zero_division=0)
+            recall = recall_score(y_test, y_pred, average='binary', zero_division=0)
+            f1 = f1_score(y_test, y_pred, average='binary', zero_division=0)
+            auc = roc_auc_score(y_test, y_pred_proba) if y_pred_proba is not None else 0
+            mcc = matthews_corrcoef(y_test, y_pred)
+            
+            results[name] = {
+                'Accuracy': accuracy,
+                'Precision': precision,
+                'Recall': recall,
+                'F1 Score': f1,
+                'AUC Score': auc,
+                'MCC Score': mcc
+            }
+        
+        st.session_state.results = results
+        st.session_state.predictions = predictions
+    
+    # Find best model
+    results_df = pd.DataFrame(st.session_state.results).T
+    best_model = results_df['Accuracy'].idxmax()
+    best_accuracy = results_df['Accuracy'].max()
+    
+    # Display best model
+    st.markdown(f'<div class="success-box">🏆 Best Model: {best_model} (Accuracy: {best_accuracy:.4f})</div>', unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Display performance table
+    st.markdown("### 📈 Performance Metrics")
+    
+    # Style the dataframe
+    def highlight_max(s):
+        is_max = s == s.max()
+        return ['background-color: #90EE90' if v else '' for v in is_max]
+    
+    styled_df = results_df.style.format("{:.4f}").apply(highlight_max, axis=0)
+    st.dataframe(styled_df, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Confusion matrices
+    st.markdown("### 🔢 Confusion Matrices")
+    
+    # Define color schemes for different models
+    color_schemes = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrRd']
+    
+    cols = st.columns(min(3, len(st.session_state.selected_models)))
+    for idx, model_name in enumerate(st.session_state.selected_models):
+        with cols[idx % 3]:
+            fig = create_confusion_matrix_plot(
+                st.session_state.y_test, 
+                st.session_state.predictions[model_name],
+                model_name,
+                color_schemes[idx % len(color_schemes)]
+            )
+            st.pyplot(fig)
+            plt.close()
+    
+    st.markdown("---")
+    
+    # Comparison chart
+    st.markdown("### 📊 Model Comparison")
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    results_df.plot(kind='bar', ax=ax, color=['#000080', '#4169E1', '#6495ED', '#87CEEB', '#B0C4DE', '#DC143C'])
+    ax.set_xlabel('Models', fontsize=12, color='#000080')
+    ax.set_ylabel('Score', fontsize=12, color='#000080')
+    ax.set_title('Model Performance Comparison', fontsize=14, color='#000080', fontweight='bold')
+    ax.legend(loc='lower right')
+    ax.set_ylim([0, 1])
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close()
+    
+    st.markdown("---")
+    
+    # Export options
+    st.markdown("### 💾 Export Results")
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        pdf_buffer = export_to_pdf(results_df, st.session_state.predictions, st.session_state.y_test)
+        st.download_button(
+            label="📄 Download PDF Report",
+            data=pdf_buffer,
+            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    
+    with col2:
+        excel_buffer = export_to_excel(results_df, st.session_state.predictions, st.session_state.y_test)
+        st.download_button(
+            label="📊 Download Excel Report",
+            data=excel_buffer,
+            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    
+    with col3:
+        csv_data = results_df.to_csv()
+        st.download_button(
+            label="📋 Download CSV",
+            data=csv_data,
+            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+    
+    st.markdown("---")
+    
+    # Back button
+    if st.button("⬅️ Back to Main Page", use_container_width=True):
+        st.session_state.page = 'main'
+        st.session_state.uploaded_df = None
+        st.session_state.results = None
+        st.session_state.predictions = {}
+        st.session_state.selected_models = []
+        st.rerun()
