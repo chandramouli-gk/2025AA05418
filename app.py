@@ -319,7 +319,7 @@ if st.session_state.page == 'main':
     </div>
     """, unsafe_allow_html=True)
     
-    st.title("🎯 Binary Classification Model Compare")
+    st.title("Binary Classification Model Compare")
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Load models
@@ -327,32 +327,32 @@ if st.session_state.page == 'main':
     preprocessor = load_preprocessor()
     
     if trained_models is None or preprocessor is None:
-        st.markdown('<div class="error-box">⚠️ Models or preprocessor not found! Please train models first using the Jupyter notebook.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="error-box">WARNING: Models or preprocessor not found! Please train models first using the Jupyter notebook.</div>', unsafe_allow_html=True)
         st.stop()
     
     # Create main layout
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("### 📤 Upload Test Data")
+        st.markdown("### Upload Test Data")
         uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'], key='file_uploader')
         
         if uploaded_file is not None:
             st.session_state.uploaded_df = pd.read_csv(uploaded_file)
-            st.success(f"✅ File uploaded successfully! Shape: {st.session_state.uploaded_df.shape}")
+            st.success(f"File uploaded successfully! Shape: {st.session_state.uploaded_df.shape}")
             
             # Preview data
-            with st.expander("👁️ Preview Data"):
+            with st.expander("Preview Data"):
                 st.dataframe(st.session_state.uploaded_df.head(10))
         
         st.markdown("---")
         
         # Model selection
-        st.markdown("### 🤖 Select Models")
+        st.markdown("### Select Models")
         
         col_a, col_b = st.columns(2)
         with col_a:
-            select_all = st.checkbox("✅ Select All Models", value=False)
+            select_all = st.checkbox("Select All Models", value=False)
         
         if select_all:
             st.session_state.selected_models = list(trained_models.keys())
@@ -375,7 +375,7 @@ if st.session_state.page == 'main':
         st.markdown("---")
         
         # Run button
-        if st.button("🚀 Run Analysis", use_container_width=True, type="primary"):
+        if st.button("Run Analysis", use_container_width=True, type="primary"):
             if st.session_state.uploaded_df is None:
                 st.error("Please upload a test file first!")
             elif len(st.session_state.selected_models) == 0:
@@ -402,12 +402,12 @@ elif st.session_state.page == 'error':
     </div>
     """, unsafe_allow_html=True)
     
-    st.title("❌ Data Validation Failed")
+    st.title("Data Validation Failed")
     st.markdown("<br>", unsafe_allow_html=True)
     
     st.markdown(f'<div class="error-box">{st.session_state.error_message}</div>', unsafe_allow_html=True)
     
-    st.markdown("### 📋 Required Data Format")
+    st.markdown("### Required Data Format")
     st.markdown("""
     Your test data must have the following columns in order:
     
@@ -441,7 +441,7 @@ elif st.session_state.page == 'error':
         st.write(st.session_state.uploaded_df.columns.tolist())
     
     st.markdown("---")
-    if st.button("⬅️ Back to Main Page", use_container_width=True):
+    if st.button("Back to Main Page", use_container_width=True):
         st.session_state.page = 'main'
         st.rerun()
 
@@ -455,7 +455,7 @@ elif st.session_state.page == 'results':
     </div>
     """, unsafe_allow_html=True)
     
-    st.title("📊 Model Performance Results")
+    st.title("Model Performance Results")
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Load models and preprocessor
@@ -511,11 +511,11 @@ elif st.session_state.page == 'results':
     best_accuracy = results_df['Accuracy'].max()
     
     # Display best model
-    st.markdown(f'<div class="success-box">🏆 Best Model: {best_model} (Accuracy: {best_accuracy:.4f})</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="success-box">Best Model: {best_model} (Accuracy: {best_accuracy:.4f})</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Display performance table
-    st.markdown("### 📈 Performance Metrics")
+    st.markdown("### Performance Metrics")
     
     # Style the dataframe
     def highlight_max(s):
@@ -528,7 +528,7 @@ elif st.session_state.page == 'results':
     st.markdown("---")
     
     # Confusion matrices
-    st.markdown("### 🔢 Confusion Matrices")
+    st.markdown("### Confusion Matrices")
     
     # Define color schemes for different models
     color_schemes = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrRd']
@@ -548,7 +548,7 @@ elif st.session_state.page == 'results':
     st.markdown("---")
     
     # Comparison chart
-    st.markdown("### 📊 Model Comparison")
+    st.markdown("### Model Comparison")
     
     fig, ax = plt.subplots(figsize=(12, 6))
     results_df.plot(kind='bar', ax=ax, color=['#000080', '#4169E1', '#6495ED', '#87CEEB', '#B0C4DE', '#DC143C'])
@@ -565,14 +565,14 @@ elif st.session_state.page == 'results':
     st.markdown("---")
     
     # Export options
-    st.markdown("### 💾 Export Results")
+    st.markdown("### Export Results")
     
     col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
         pdf_buffer = export_to_pdf(results_df, st.session_state.predictions, st.session_state.y_test)
         st.download_button(
-            label="📄 Download PDF Report",
+            label="Download PDF Report",
             data=pdf_buffer,
             file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.pdf",
             mime="application/pdf",
@@ -582,7 +582,7 @@ elif st.session_state.page == 'results':
     with col2:
         excel_buffer = export_to_excel(results_df, st.session_state.predictions, st.session_state.y_test)
         st.download_button(
-            label="📊 Download Excel Report",
+            label="Download Excel Report",
             data=excel_buffer,
             file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -592,7 +592,7 @@ elif st.session_state.page == 'results':
     with col3:
         csv_data = results_df.to_csv()
         st.download_button(
-            label="📋 Download CSV",
+            label="Download CSV",
             data=csv_data,
             file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
@@ -602,7 +602,7 @@ elif st.session_state.page == 'results':
     st.markdown("---")
     
     # Back button
-    if st.button("⬅️ Back to Main Page", use_container_width=True):
+    if st.button("Back to Main Page", use_container_width=True):
         st.session_state.page = 'main'
         st.session_state.uploaded_df = None
         st.session_state.results = None
