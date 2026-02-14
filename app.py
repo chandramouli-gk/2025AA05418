@@ -8,15 +8,13 @@ from sklearn.metrics import (accuracy_score, roc_auc_score, precision_score,
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from datetime import datetime
-import xlsxwriter
-from PIL import Image as PILImage
 
 # Page configuration with custom colors
 st.set_page_config(
@@ -150,6 +148,17 @@ def get_expected_columns():
     return ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 
             'exang', 'oldpeak', 'slope', 'ca', 'thal', 'target']
 
+@st.cache_data
+def load_readme_from_github():
+    """Load README.md from GitHub repository"""
+    try:
+        readme_url = "https://raw.githubusercontent.com/chandramouli-gk/2025AA05418/main/README.md"
+        response = pd.read_csv(readme_url, sep='\n', header=None, dtype=str)
+        readme_content = '\n'.join(response[0].tolist())
+        return readme_content
+    except:
+        return None
+
 def validate_test_data(df, preprocessor):
     """Validate that test data meets preprocessor requirements"""
     expected_cols = get_expected_columns()
@@ -194,135 +203,246 @@ def create_confusion_matrix_plot(y_true, y_pred, model_name, color_scheme):
     
     return fig
 
-def export_to_pdf(results_df, predictions, y_test):
-    """Export results to PDF with watermark"""
+def export_to_pdf(results_df, predictions, y_test, selected_models):
+    """Export comprehensive results to PDF with watermark, confusion matrices, and README content from GitHub"""
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=100, bottomMargin=72)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=80, bottomMargin=50)
     
     elements = []
     styles = getSampleStyleSheet()
+    
+    # Load README from GitHub
+    readme_content = load_readme_from_github()
     
     # Custom styles
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=24,
+        fontSize=20,
         textColor=colors.HexColor('#000080'),
-        spaceAfter=30,
+        spaceAfter=20,
         alignment=TA_CENTER
     )
     
-    watermark_style = ParagraphStyle(
-        'Watermark',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.grey,
-        alignment=TA_RIGHT
+    heading2_style = ParagraphStyle(
+        'CustomHeading2',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=colors.HexColor('#000080'),
+        spaceAfter=10,
+        spaceBefore=10
     )
     
     # Title
     title = Paragraph("Binary Classification Model Comparison Report", title_style)
     elements.append(title)
-    
-    # Watermark
-    watermark = Paragraph("2025AA05418", watermark_style)
-    elements.append(watermark)
-    elements.append(Spacer(1, 20))
+    elements.append(Spacer(1, 10))
     
     # Author info
-    author_text = f"<b>Author:</b> ChandraMouli GK<br/><b>BITS ID:</b> 2025AA05418<br/><b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    author_text = f"<b>Author:</b> ChandraMouli GK | <b>BITS ID:</b> 2025AA05418 | <b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}"
     elements.append(Paragraph(author_text, styles['Normal']))
     elements.append(Spacer(1, 20))
     
-    # Results table
-    elements.append(Paragraph("<b>Model Performance Summary</b>", styles['Heading2']))
+    # Extract content from README if available
+    if readme_content:
+        # Extract Problem Statement
+        if '## a. Problem Statement' in readme_content:
+            problem_start = readme_content.find('## a. Problem Statement')
+            problem_end = readme_content.find('## b. Dataset Description', problem_start)
+            if problem_end != -1:
+                problem_section = readme_content[problem_start:problem_end].strip()
+                # Clean up markdown formatting
+                problem_text = problem_section.replace('## a. Problem Statement', '').strip()
+                problem_text = problem_text.split('\n\n')[0]  # Get first paragraph
+            else:
+                problem_text = "Binary classification of heart disease using machine learning models."
+        else:
+            problem_text = "Binary classification of heart disease using machine learning models."
+        
+        # Extract Dataset Description
+        if '## b. Dataset Description' in readme_content:
+            dataset_start = readme_content.find('## b. Dataset Description')
+            dataset_end = readme_content.find('## c. Models Used', dataset_start)
+            if dataset_end != -1:
+                dataset_section = readme_content[dataset_start:dataset_end].strip()
+                # Extract key info
+                dataset_lines = dataset_section.split('\n')
+                dataset_info = []
+                for line in dataset_lines:
+                    if 'Source:' in line or 'Total Records:' in line or 'Features:' in line or 'Target Variable:' in line or 'Data Split:' in line:
+                        dataset_info.append(line.strip('- ').strip())
+                dataset_text = '<br/>'.join(dataset_info[:5]) if dataset_info else "Heart Disease Dataset with 13 features"
+            else:
+                dataset_text = "Heart Disease Dataset with 13 features"
+        else:
+            dataset_text = "Heart Disease Dataset with 13 features"
+    else:
+        # Fallback content
+        problem_text = """This assignment develops and compares six machine learning models for binary classification 
+        of heart disease. The task predicts whether a patient has heart disease (1) or not (0) based on clinical and 
+        demographic features. Models are evaluated using Accuracy, AUC, Precision, Recall, F1 Score, and MCC metrics."""
+        dataset_text = """<b>Source:</b> Heart Disease Dataset from Kaggle<br/>
+        <b>Total Records:</b> 1,025 patients<br/>
+        <b>Features:</b> 13 clinical and demographic features<br/>
+        <b>Target Variable:</b> Binary (0 = No disease, 1 = Disease)<br/>
+        <b>Data Split:</b> 80% Training (820 records) / 20% Testing (205 records)"""
+    
+    # Problem Statement
+    elements.append(Paragraph("<b>Problem Statement</b>", heading2_style))
+    elements.append(Paragraph(problem_text, styles['Normal']))
+    elements.append(Spacer(1, 15))
+    
+    # Dataset Description
+    elements.append(Paragraph("<b>Dataset Description</b>", heading2_style))
+    elements.append(Paragraph(dataset_text, styles['Normal']))
+    elements.append(Spacer(1, 15))
+    
+    # Model Performance Summary
+    elements.append(Paragraph("<b>Model Performance Summary</b>", heading2_style))
     elements.append(Spacer(1, 10))
     
     # Prepare table data
-    table_data = [['Model'] + list(results_df.columns)]
+    table_data = [['Model', 'Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'MCC']]
     for idx, row in results_df.iterrows():
         table_data.append([idx] + [f"{val:.4f}" for val in row])
     
     # Create table
-    t = Table(table_data)
+    t = Table(table_data, colWidths=[100, 60, 60, 60, 60, 60, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000080')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
         ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
     ]))
     
     elements.append(t)
-    elements.append(Spacer(1, 20))
+    elements.append(Spacer(1, 15))
     
     # Best model
     best_model = results_df['Accuracy'].idxmax()
     best_accuracy = results_df['Accuracy'].max()
     best_text = f"<b>Best Performing Model:</b> {best_model} (Accuracy: {best_accuracy:.4f})"
     elements.append(Paragraph(best_text, styles['Normal']))
+    elements.append(PageBreak())
+    
+    # Confusion Matrices
+    elements.append(Paragraph("<b>Confusion Matrices</b>", heading2_style))
+    elements.append(Spacer(1, 10))
+    
+    color_schemes = ['Blues', 'Reds', 'Greens', 'Purples', 'Oranges', 'YlOrRd']
+    
+    for idx, model_name in enumerate(selected_models):
+        # Create confusion matrix
+        cm = confusion_matrix(y_test, predictions[model_name])
+        
+        # Save confusion matrix as image
+        fig, ax = plt.subplots(figsize=(4, 3))
+        sns.heatmap(cm, annot=True, fmt='d', cmap=color_schemes[idx % len(color_schemes)],
+                    cbar=False, ax=ax,
+                    xticklabels=['No Disease', 'Disease'],
+                    yticklabels=['No Disease', 'Disease'])
+        ax.set_xlabel('Predicted', fontsize=9)
+        ax.set_ylabel('True', fontsize=9)
+        ax.set_title(f'{model_name}', fontsize=10, fontweight='bold')
+        plt.tight_layout()
+        
+        # Save to BytesIO
+        img_buffer = BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+        img_buffer.seek(0)
+        plt.close()
+        
+        # Add to PDF
+        img = Image(img_buffer, width=3*inch, height=2.5*inch)
+        elements.append(Paragraph(f"<b>{model_name}</b>", styles['Normal']))
+        elements.append(img)
+        elements.append(Spacer(1, 10))
+        
+        # Add 2 per page
+        if (idx + 1) % 2 == 0 and idx < len(selected_models) - 1:
+            elements.append(PageBreak())
+    
+    elements.append(PageBreak())
+    
+    # Body style for wrapped text
+    body_style = ParagraphStyle(
+        name='BodyStyle',
+        fontName='Helvetica',
+        fontSize=9,
+        leading=12,   # line spacing
+    )
+
+    # Header style
+    header_style = ParagraphStyle(
+        name='HeaderStyle',
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        textColor=colors.whitesmoke
+    )
+
+    # Model Observations
+    elements.append(Paragraph("<b>Model Performance Observations</b>", heading2_style))
+    elements.append(Spacer(1, 10))
+    
+    observations = {
+        'Logistic Regression': 'Good baseline performance with strong interpretability. Balanced precision-recall trade-off makes it reliable for general predictions.',
+        'Decision Tree': 'Excellent performance with near-perfect metrics. Perfect precision indicates no false positives, but potential risk of overfitting.',
+        'K-Nearest Neighbors': 'Moderate performance with good AUC. Sensitive to feature scaling and may struggle with high-dimensional data.',
+        'Naive Bayes': 'Reasonable performance with good recall. Independence assumption may limit performance with correlated medical features.',
+        'Random Forest': 'Best performing model with perfect scores across all metrics. Ensemble approach effectively captures complex patterns and feature interactions.',
+        'XGBoost': 'Outstanding performance comparable to Random Forest. Gradient boosting with regularization provides excellent balance of performance and generalization.'
+    }
+    
+    obs_data = [
+    [Paragraph('<b>Model</b>', header_style),
+     Paragraph('<b>Observation</b>', header_style)]
+    ]
+    for model in selected_models:
+        if model in observations:
+            obs_data.append([
+            Paragraph(model, body_style),
+            Paragraph(observations[model], body_style)
+        ])
+    
+    obs_table = Table(obs_data, colWidths=[120, 200])
+    obs_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000080')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    elements.append(obs_table)
+    elements.append(Spacer(1, 15))
+    
+    # Conclusion
+    elements.append(Paragraph("<b>Conclusion</b>", heading2_style))
+    conclusion_text = f"""This analysis successfully compared six machine learning models for heart disease prediction. 
+    Ensemble methods (Random Forest and XGBoost) significantly outperformed traditional classifiers. 
+    <b>{best_model}</b> achieved the best accuracy of <b>{best_accuracy:.4f}</b>, demonstrating exceptional 
+    predictive capability for clinical decision support."""
+    elements.append(Paragraph(conclusion_text, styles['Normal']))
     
     # Watermark footer on each page
     def add_watermark(canvas, doc):
         canvas.saveState()
-        canvas.setFont('Helvetica', 40)
-        canvas.setFillColorRGB(0.9, 0.9, 0.9)
+        canvas.setFont('Helvetica', 50)
+        canvas.setFillColorRGB(0.95, 0.95, 0.95)
         canvas.rotate(45)
-        canvas.drawString(200, 100, "2025AA05418")
+        canvas.drawString(100, 50, "2025AA05418")
         canvas.restoreState()
     
     doc.build(elements, onFirstPage=add_watermark, onLaterPages=add_watermark)
-    buffer.seek(0)
-    return buffer
-
-def export_to_excel(results_df, predictions, y_test):
-    """Export results to Excel with watermark"""
-    buffer = BytesIO()
-    
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Write results
-        results_df.to_excel(writer, sheet_name='Model Performance', startrow=5)
-        
-        workbook = writer.book
-        worksheet = writer.sheets['Model Performance']
-        
-        # Add watermark text
-        watermark_format = workbook.add_format({
-            'font_size': 40,
-            'font_color': '#CCCCCC',
-            'align': 'center',
-            'valign': 'vcenter'
-        })
-        
-        # Title format
-        title_format = workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'font_color': '#000080',
-            'align': 'center'
-        })
-        
-        # Header format
-        header_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#000080',
-            'font_color': 'white',
-            'align': 'center',
-            'border': 1
-        })
-        
-        # Add title
-        worksheet.merge_range('A1:H1', 'Binary Classification Model Comparison Report', title_format)
-        worksheet.write('A2', f'Author: ChandraMouli GK')
-        worksheet.write('A3', f'BITS ID: 2025AA05418')
-        worksheet.write('A4', f'Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
-        
-        # Add watermark
-        worksheet.write('H2', '2025AA05418', watermark_format)
-        
     buffer.seek(0)
     return buffer
 
@@ -600,37 +720,15 @@ elif st.session_state.page == 'results':
     # Export options
     st.markdown("### Export Results")
     
-    col1, col2, col3 = st.columns([1, 1, 1])
-    
-    with col1:
-        pdf_buffer = export_to_pdf(results_df, st.session_state.predictions, st.session_state.y_test)
-        st.download_button(
-            label="Download PDF Report",
-            data=pdf_buffer,
-            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
-    
-    with col2:
-        excel_buffer = export_to_excel(results_df, st.session_state.predictions, st.session_state.y_test)
-        st.download_button(
-            label="Download Excel Report",
-            data=excel_buffer,
-            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
-    
-    with col3:
-        csv_data = results_df.to_csv()
-        st.download_button(
-            label="Download CSV",
-            data=csv_data,
-            file_name=f"model_comparison_2025AA05418_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    pdf_buffer = export_to_pdf(results_df, st.session_state.predictions, st.session_state.y_test, st.session_state.selected_models)
+    st.download_button(
+        label="Download Complete PDF Report",
+        data=pdf_buffer,
+        file_name=f"ML_Report_2025AA05418_{datetime.now().strftime('%Y%m%d')}.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+        help="Download comprehensive report with performance metrics, confusion matrices, and analysis"
+    )
     
     st.markdown("---")
     
