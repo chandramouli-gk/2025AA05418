@@ -38,7 +38,7 @@ st.markdown("""
         left: 50%;
         transform: translate(-50%, -50%) rotate(-45deg);
         font-size: 100px;
-        color: rgba(0, 0, 128, 0.15);
+        color: rgba(0, 0, 128, 0.025);
         z-index: 999;
         pointer-events: none;
         font-weight: bold;
@@ -354,21 +354,21 @@ if st.session_state.page == 'main':
     with col2:
         st.markdown("### Upload Test Data")
         
-        # Two options: Upload or Load from GitHub
-        col_upload, col_github = st.columns([2, 1])
+        # Two options: Upload or Load Test Data from GitHub
+        col_upload, col_test_github = st.columns([2, 1])
         
         with col_upload:
             uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'], key='file_uploader')
         
-        with col_github:
+        with col_test_github:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Load Test Data from GitHub", use_container_width=True):
+            if st.button("Load Test Data", use_container_width=True, help="Load test_data.csv from GitHub"):
                 try:
                     github_url = "https://raw.githubusercontent.com/chandramouli-gk/2025AA05418/main/test_data.csv"
                     st.session_state.uploaded_df = pd.read_csv(github_url)
-                    st.success(f"GitHub data loaded successfully! Shape: {st.session_state.uploaded_df.shape}")
+                    st.success(f"Test data loaded! Shape: {st.session_state.uploaded_df.shape}")
                 except Exception as e:
-                    st.error(f"Failed to load from GitHub: {str(e)}")
+                    st.error(f"Failed to load test data: {str(e)}")
         
         if uploaded_file is not None:
             st.session_state.uploaded_df = pd.read_csv(uploaded_file)
